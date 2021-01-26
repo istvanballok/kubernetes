@@ -887,6 +887,9 @@ func (proxier *Proxier) syncProxyRules() {
 		}
 	}
 
+	// extend the time window between initializing and filling the NAT chains
+	time.Sleep(5 * time.Second)
+
 	// ensure KUBE-MARK-DROP chain exist but do not change any rules
 	for _, ch := range iptablesEnsureChains {
 		if _, err := proxier.iptables.EnsureChain(ch.table, ch.chain); err != nil {
