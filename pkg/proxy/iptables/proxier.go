@@ -871,32 +871,36 @@ func (proxier *Proxier) syncProxyRules() {
 		}
 	}()
 
-	// Create and link the kube chains.
-	for _, jump := range iptablesJumpChains {
-		if _, err := proxier.iptables.EnsureChain(jump.table, jump.dstChain); err != nil {
-			klog.ErrorS(err, "Failed to ensure chain exists", "table", jump.table, "chain", jump.dstChain)
-			return
-		}
-		args := append(jump.extraArgs,
-			"-m", "comment", "--comment", jump.comment,
-			"-j", string(jump.dstChain),
-		)
-		if _, err := proxier.iptables.EnsureRule(utiliptables.Prepend, jump.table, jump.srcChain, args...); err != nil {
-			klog.ErrorS(err, "Failed to ensure chain jumps", "table", jump.table, "srcChain", jump.srcChain, "dstChain", jump.dstChain)
-			return
-		}
-	}
+	defer func() {
+		// extend the time window between filling and initializing the NAT chains
+		// if the NAT chains are filled before linking them, even if we wait between
+		// the 2 operations, it isn't possible for packets to get a conntrack entry without NAT-ing
+		time.Sleep(5 * time.Second)
 
-	// extend the time window between initializing and filling the NAT chains
-	time.Sleep(5 * time.Second)
-
-	// ensure KUBE-MARK-DROP chain exist but do not change any rules
-	for _, ch := range iptablesEnsureChains {
-		if _, err := proxier.iptables.EnsureChain(ch.table, ch.chain); err != nil {
-			klog.ErrorS(err, "Failed to ensure chain exists", "table", ch.table, "chain", ch.chain)
-			return
+		// Create and link the kube chains.
+		for _, jump := range iptablesJumpChains {
+			if _, err := proxier.iptables.EnsureChain(jump.table, jump.dstChain); err != nil {
+				klog.ErrorS(err, "Failed to ensure chain exists", "table", jump.table, "chain", jump.dstChain)
+				return
+			}
+			args := append(jump.extraArgs,
+				"-m", "comment", "--comment", jump.comment,
+				"-j", string(jump.dstChain),
+			)
+			if _, err := proxier.iptables.EnsureRule(utiliptables.Prepend, jump.table, jump.srcChain, args...); err != nil {
+				klog.ErrorS(err, "Failed to ensure chain jumps", "table", jump.table, "srcChain", jump.srcChain, "dstChain", jump.dstChain)
+				return
+			}
 		}
-	}
+
+		// ensure KUBE-MARK-DROP chain exist but do not change any rules
+		for _, ch := range iptablesEnsureChains {
+			if _, err := proxier.iptables.EnsureChain(ch.table, ch.chain); err != nil {
+				klog.ErrorS(err, "Failed to ensure chain exists", "table", ch.table, "chain", ch.chain)
+				return
+			}
+		}
+	}()
 
 	//
 	// Below this point we will not return until we try to write the iptables rules.
